@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "../db";
+import { deleteTiendaImage, saveTiendaImage } from "../utils/storage";
 
 interface TiendaInput {
   id?: string;
@@ -20,6 +19,11 @@ interface TiendaInput {
   inicial?: string;
   colorAcento?: string;
   imagen?: string;
+}
+
+function toBoolean(value: unknown, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  return value === true || value === "true";
 }
 
 function validate(p: TiendaInput): string | null {
@@ -72,6 +76,7 @@ export async function getOne(req: Request, res: Response): Promise<void> {
 }
 
 export async function create(req: Request, res: Response): Promise<void> {
+  let uploadedImage: string | null = null;
   try {
     const body: TiendaInput = req.body;
     const error = validate(body);
@@ -87,7 +92,8 @@ export async function create(req: Request, res: Response): Promise<void> {
     }
 
     if (req.file) {
-      body.imagen = `/uploads/${req.file.filename}`;
+      uploadedImage = await saveTiendaImage(req.file, body.id!);
+      body.imagen = uploadedImage;
     }
 
     const tienda = await prisma.tienda.create({
@@ -103,8 +109,8 @@ export async function create(req: Request, res: Response): Promise<void> {
         reviews: Number(body.reviews),
         telefono: body.telefono!,
         horario: body.horario!,
-        abierto: Boolean(body.abierto),
-        destacado: Boolean(body.destacado),
+        abierto: toBoolean(body.abierto, true),
+        destacado: toBoolean(body.destacado, false),
         inicial: body.inicial!,
         colorAcento: body.colorAcento!,
         imagen: body.imagen ?? "",
@@ -113,12 +119,14 @@ export async function create(req: Request, res: Response): Promise<void> {
 
     res.status(201).json({ data: tienda });
   } catch (err) {
+    if (uploadedImage) await deleteTiendaImage(uploadedImage);
     console.error("[tiendas.create]", err);
     res.status(500).json({ error: "Error al crear tienda" });
   }
 }
 
 export async function update(req: Request, res: Response): Promise<void> {
+  let uploadedImage: string | null = null;
   try {
     const body: TiendaInput = req.body;
     const id = req.params.id;
@@ -130,7 +138,8 @@ export async function update(req: Request, res: Response): Promise<void> {
     }
 
     if (req.file) {
-      body.imagen = `/uploads/${req.file.filename}`;
+      uploadedImage = await saveTiendaImage(req.file, id);
+      body.imagen = uploadedImage;
     }
 
     const tienda = await prisma.tienda.update({
@@ -151,19 +160,21 @@ export async function update(req: Request, res: Response): Promise<void> {
           body.reviews !== undefined ? Number(body.reviews) : exists.reviews,
         telefono: body.telefono ?? exists.telefono,
         horario: body.horario ?? exists.horario,
-        abierto: body.abierto !== undefined ? Boolean(body.abierto) : exists.abierto,
-        destacado:
-          body.destacado !== undefined
-            ? Boolean(body.destacado)
-            : exists.destacado,
+        abierto: toBoolean(body.abierto, exists.abierto),
+        destacado: toBoolean(body.destacado, exists.destacado),
         inicial: body.inicial ?? exists.inicial,
         colorAcento: body.colorAcento ?? exists.colorAcento,
         imagen: body.imagen ?? exists.imagen,
       },
     });
 
+    if (uploadedImage && exists.imagen) {
+      await deleteTiendaImage(exists.imagen);
+    }
+
     res.json({ data: tienda });
   } catch (err) {
+    if (uploadedImage) await deleteTiendaImage(uploadedImage);
     console.error("[tiendas.update]", err);
     res.status(500).json({ error: "Error al actualizar tienda" });
   }
@@ -179,6 +190,7 @@ export async function remove(req: Request, res: Response): Promise<void> {
       return;
     }
     await prisma.tienda.delete({ where: { id: req.params.id } });
+    if (exists.imagen) await deleteTiendaImage(exists.imagen);
     res.json({ ok: true });
   } catch (err) {
     console.error("[tiendas.remove]", err);

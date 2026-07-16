@@ -6,6 +6,7 @@ import fs from "fs";
 import authRoutes from "./routes/auth.routes";
 import tiendasRoutes from "./routes/tiendas.routes";
 import { CORS_ORIGIN, UPLOAD_DIR } from "./config";
+import { prisma } from "./db";
 
 const app = express();
 
@@ -26,6 +27,23 @@ app.use("/uploads", express.static(path.resolve(UPLOAD_DIR)));
 
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ ok: true, timestamp: new Date().toISOString() });
+});
+
+app.get("/api/health/ready", async (_req: Request, res: Response) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({
+      ok: true,
+      database: "connected",
+      timestamp: new Date().toISOString(),
+    });
+  } catch {
+    res.status(503).json({
+      ok: false,
+      database: "disconnected",
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
 app.use("/api/auth", authRoutes);
