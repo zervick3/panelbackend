@@ -29,6 +29,15 @@ app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ ok: true, timestamp: new Date().toISOString() });
 });
 
+function getDatabaseErrorCode(error: unknown): string {
+  if (!error || typeof error !== "object") return "UNKNOWN";
+  if ("code" in error && typeof error.code === "string") return error.code;
+  if ("errorCode" in error && typeof error.errorCode === "string") {
+    return error.errorCode;
+  }
+  return "UNKNOWN";
+}
+
 app.get("/api/health/ready", async (_req: Request, res: Response) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -37,10 +46,13 @@ app.get("/api/health/ready", async (_req: Request, res: Response) => {
       database: "connected",
       timestamp: new Date().toISOString(),
     });
-  } catch {
+  } catch (error) {
+    const errorCode = getDatabaseErrorCode(error);
+    console.error("[health.ready]", errorCode);
     res.status(503).json({
       ok: false,
       database: "disconnected",
+      errorCode,
       timestamp: new Date().toISOString(),
     });
   }

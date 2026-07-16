@@ -18,22 +18,24 @@ model User {
 }
 
 model Tienda {
-  id           String   @id
-  nombre       String
-  tipo         String
-  categoria    String
-  ciudad       String
-  direccion    String
-  distanciaKm  Float    @default(0)
-  rating       Float    @default(0)
-  reviews      Int      @default(0)
-  telefono     String
-  horario      String
-  abierto      Boolean  @default(true)
-  destacado    Boolean  @default(false)
-  inicial      String
-  colorAcento  String   @default("#4DBDBD")
-  imagen       String   @default("")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String   @id
+  nombre         String
+  tipo           String
+  categoria      String
+  ciudad         String
+  direccion      String
+  distanciaKm    Float    @default(0)
+  rating         Float    @default(0)
+  reviews        Int      @default(0)
+  telefono       String
+  horario        String
+  abierto        Boolean  @default(true)
+  destacado      Boolean  @default(false)
+  inicial        String
+  colorAcento    String   @default("#4DBDBD")
+  imagen         String   @default("")
+  imagenData     Bytes?
+  imagenMimeType String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }

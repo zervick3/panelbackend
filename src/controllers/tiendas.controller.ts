@@ -1,6 +1,6 @@
+import { Prisma } from "@prisma/client";
 import { Request, Response } from "express";
 import { prisma } from "../db";
-import { deleteTiendaImage, saveTiendaImage } from "../utils/storage";
 
 interface TiendaInput {
   id?: string;
@@ -21,9 +21,40 @@ interface TiendaInput {
   imagen?: string;
 }
 
+const tiendaSelect = {
+  id: true,
+  nombre: true,
+  tipo: true,
+  categoria: true,
+  ciudad: true,
+  direccion: true,
+  distanciaKm: true,
+  rating: true,
+  reviews: true,
+  telefono: true,
+  horario: true,
+  abierto: true,
+  destacado: true,
+  inicial: true,
+  colorAcento: true,
+  imagen: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.TiendaSelect;
+
 function toBoolean(value: unknown, fallback: boolean): boolean {
   if (value === undefined) return fallback;
   return value === true || value === "true";
+}
+
+function imageUrl(id: string): string {
+  return `/api/tiendas/${encodeURIComponent(id)}/imagen?v=${Date.now()}`;
+}
+
+function imageBytes(file: Express.Multer.File): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(file.buffer.byteLength);
+  bytes.set(file.buffer);
+  return bytes;
 }
 
 function validate(p: TiendaInput): string | null {
@@ -50,6 +81,7 @@ function validate(p: TiendaInput): string | null {
 export async function list(_req: Request, res: Response): Promise<void> {
   try {
     const tiendas = await prisma.tienda.findMany({
+      select: tiendaSelect,
       orderBy: { updatedAt: "desc" },
     });
     res.json({ data: tiendas });
@@ -63,6 +95,7 @@ export async function getOne(req: Request, res: Response): Promise<void> {
   try {
     const tienda = await prisma.tienda.findUnique({
       where: { id: req.params.id },
+      select: tiendaSelect,
     });
     if (!tienda) {
       res.status(404).json({ error: "Tienda no encontrada" });
@@ -75,8 +108,32 @@ export async function getOne(req: Request, res: Response): Promise<void> {
   }
 }
 
+export async function getImage(req: Request, res: Response): Promise<void> {
+  try {
+    const tienda = await prisma.tienda.findUnique({
+      where: { id: req.params.id },
+      select: { imagenData: true, imagenMimeType: true, updatedAt: true },
+    });
+    if (!tienda?.imagenData) {
+      res.status(404).json({ error: "Imagen no encontrada" });
+      return;
+    }
+
+    const image = Buffer.from(tienda.imagenData);
+    res.set({
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "Content-Length": String(image.length),
+      "Content-Type": tienda.imagenMimeType || "application/octet-stream",
+      ETag: `"${req.params.id}-${tienda.updatedAt.getTime()}-${image.length}"`,
+    });
+    res.send(image);
+  } catch (err) {
+    console.error("[tiendas.getImage]", err);
+    res.status(500).json({ error: "Error al obtener imagen" });
+  }
+}
+
 export async function create(req: Request, res: Response): Promise<void> {
-  let uploadedImage: string | null = null;
   try {
     const body: TiendaInput = req.body;
     const error = validate(body);
@@ -85,15 +142,13 @@ export async function create(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const exists = await prisma.tienda.findUnique({ where: { id: body.id! } });
+    const exists = await prisma.tienda.findUnique({
+      where: { id: body.id! },
+      select: { id: true },
+    });
     if (exists) {
       res.status(409).json({ error: "Ya existe una tienda con ese ID" });
       return;
-    }
-
-    if (req.file) {
-      uploadedImage = await saveTiendaImage(req.file, body.id!);
-      body.imagen = uploadedImage;
     }
 
     const tienda = await prisma.tienda.create({
@@ -113,34 +168,44 @@ export async function create(req: Request, res: Response): Promise<void> {
         destacado: toBoolean(body.destacado, false),
         inicial: body.inicial!,
         colorAcento: body.colorAcento!,
-        imagen: body.imagen ?? "",
+        imagen: req.file ? imageUrl(body.id!) : body.imagen ?? "",
+        imagenData: req.file ? imageBytes(req.file) : undefined,
+        imagenMimeType: req.file?.mimetype,
       },
+      select: tiendaSelect,
     });
 
     res.status(201).json({ data: tienda });
   } catch (err) {
-    if (uploadedImage) await deleteTiendaImage(uploadedImage);
     console.error("[tiendas.create]", err);
     res.status(500).json({ error: "Error al crear tienda" });
   }
 }
 
 export async function update(req: Request, res: Response): Promise<void> {
-  let uploadedImage: string | null = null;
   try {
     const body: TiendaInput = req.body;
     const id = req.params.id;
 
-    const exists = await prisma.tienda.findUnique({ where: { id } });
+    const exists = await prisma.tienda.findUnique({
+      where: { id },
+      select: tiendaSelect,
+    });
     if (!exists) {
       res.status(404).json({ error: "Tienda no encontrada" });
       return;
     }
 
-    if (req.file) {
-      uploadedImage = await saveTiendaImage(req.file, id);
-      body.imagen = uploadedImage;
-    }
+    const removeImage = !req.file && body.imagen === "";
+    const imageUpdate = req.file
+      ? {
+          imagen: imageUrl(id),
+          imagenData: imageBytes(req.file),
+          imagenMimeType: req.file.mimetype,
+        }
+      : removeImage
+        ? { imagen: "", imagenData: null, imagenMimeType: null }
+        : {};
 
     const tienda = await prisma.tienda.update({
       where: { id },
@@ -164,17 +229,13 @@ export async function update(req: Request, res: Response): Promise<void> {
         destacado: toBoolean(body.destacado, exists.destacado),
         inicial: body.inicial ?? exists.inicial,
         colorAcento: body.colorAcento ?? exists.colorAcento,
-        imagen: body.imagen ?? exists.imagen,
+        ...imageUpdate,
       },
+      select: tiendaSelect,
     });
-
-    if (uploadedImage && exists.imagen) {
-      await deleteTiendaImage(exists.imagen);
-    }
 
     res.json({ data: tienda });
   } catch (err) {
-    if (uploadedImage) await deleteTiendaImage(uploadedImage);
     console.error("[tiendas.update]", err);
     res.status(500).json({ error: "Error al actualizar tienda" });
   }
@@ -184,13 +245,13 @@ export async function remove(req: Request, res: Response): Promise<void> {
   try {
     const exists = await prisma.tienda.findUnique({
       where: { id: req.params.id },
+      select: { id: true },
     });
     if (!exists) {
       res.status(404).json({ error: "Tienda no encontrada" });
       return;
     }
     await prisma.tienda.delete({ where: { id: req.params.id } });
-    if (exists.imagen) await deleteTiendaImage(exists.imagen);
     res.json({ ok: true });
   } catch (err) {
     console.error("[tiendas.remove]", err);

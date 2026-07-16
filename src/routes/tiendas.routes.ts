@@ -6,6 +6,7 @@ import { upload } from "../utils/upload";
 const router = Router();
 
 router.get("/", tiendasCtrl.list);
+router.get("/:id/imagen", tiendasCtrl.getImage);
 router.get("/:id", tiendasCtrl.getOne);
 router.post("/", authMiddleware, upload.single("imagen"), tiendasCtrl.create);
 router.put("/:id", authMiddleware, upload.single("imagen"), tiendasCtrl.update);
