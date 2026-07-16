@@ -5,12 +5,14 @@ import { upload } from "../utils/upload";
 
 const router = Router();
 
-router.use(authMiddleware);
-
+// GET routes → públicos (sin autenticación)
 router.get("/", tiendasCtrl.list);
 router.get("/:id", tiendasCtrl.getOne);
-router.post("/", upload.single("imagen"), tiendasCtrl.create);
-router.put("/:id", upload.single("imagen"), tiendasCtrl.update);
-router.delete("/:id", tiendasCtrl.remove);
+
+// POST/PUT/DELETE routes → protegidos (con autenticación)
+router.post("/", authMiddleware, upload.single("imagen"), tiendasCtrl.create);
+router.put("/:id", authMiddleware, upload.single("imagen"), tiendasCtrl.update);
+router.delete("/:id", authMiddleware, tiendasCtrl.remove);
 
 export default router;
+
